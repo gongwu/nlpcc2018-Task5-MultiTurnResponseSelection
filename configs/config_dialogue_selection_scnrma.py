@@ -36,7 +36,7 @@ def process_config(jsonfile):
     config.dev_file = os.path.join(DATA_DIR, "word/sample", "dev_sample.json")
     config.test_file = os.path.join(DATA_DIR, "word", "test_selection.json")
     config.dev_predict_file = os.path.join(config.result_dir, "dev_predict_file.txt")
-    config.test_predict_file = os.path.join(config.result_dir, "test_predict_file.txt")
+    config.test_predict_file = os.path.join(config.result_dir, "dev_predict_file.txt")
     config.gold_label_file = os.path.join(config.result_dir, "gold_label_file.txt")
     config.word_embed_file = os.path.join(DATA_DIR, "embed", "word2vec_dialogue_200_2.txt")
     config.idf_file = os.path.join(DATA_DIR, "dic", "idf_all.txt")
@@ -51,7 +51,6 @@ def process_config(jsonfile):
     config.max_utter_len = 10
     config.num_class = 2
     config.word_dim = 200
-    config.eps = 1e-6
     # label
     config.category2id = {'negative': 0, 'positive': 1}
     config.id2category = {index: label for label, index in config.category2id.items()}

@@ -1,13 +1,13 @@
 import tensorflow as tf
-from configs.config_dialogue_selection_mbmn import process_config
+from configs.config_dialogue_selection_scnrma import process_config
 from data_loader.dialogueSelection_data_generator import DialogueDataGenerator
-from models.MBMN_model import MBMNModel
-from trainers.MBMN_trainer import MBMNTrainer
+from models.SCNRMA_model import SCNRMAModel
+from trainers.SCNRMA_trainer import SCNRMATrainer
 from utils.dirs import create_dirs
 from utils.logger import Logger
 from utils.utils import get_args
 import os
-configfile = 'config_dialogue_selection_mbmn.json'
+configfile = 'config_dialogue_selection_scnrma.json'
 
 
 def main():
@@ -32,9 +32,9 @@ def main():
     # create instance of the model you want
     # create tensorboard logger
     # create trainer and path all previous components to it
-    model = MBMNModel(config, data)
+    model = SCNRMAModel(config, data)
     logger = Logger(sess, config)
-    trainer = MBMNTrainer(sess, model, data, config, logger)
+    trainer = SCNRMATrainer(sess, model, data, config, logger)
     # here you train your model
     trainer.do_test()
 

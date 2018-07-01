@@ -1,13 +1,13 @@
 # -*- coding:utf-8 _*-
 from __future__ import print_function
 import tensorflow as tf
-from models.SCNMA_model import SCNMAModel
+from models.SCN_model import SCNModel
 from utils import tf_utils
 
 
-class SCNRMAModel(SCNMAModel):
+class SCNRMAModel(SCNModel):
     def __init__(self, config, data):
-        super(SCNRMAModel, self).__init__(config, data)
+        super(SCNModel, self).__init__(config, data)
 
     def build_model(self):
         # b * u * s * d
@@ -51,15 +51,15 @@ class SCNRMAModel(SCNMAModel):
                                                             dtype=tf.float32,
                                                             scope='utterance_sentence_GRU')
             # [b * s * o] * [o * o] = [b * s * o]
-            matrix2 = tf.einsum('aij,jk->aik', utterance_GRU_embeddings, A_matrix)  # TODO:check this
+            matrix2 = tf.einsum('aij,jk->aik', utterance_GRU_embeddings, A_matrix)
             # [b * s * o] * [b * o * s] = [b * s * s]
             matrix2 = tf.matmul(matrix2, response_GRU_embeddings)
             matrix = tf.stack([matrix1, matrix2], axis=3, name='matrix_stack')
             conv_layer = tf.layers.conv2d(matrix, filters=8, kernel_size=(3, 3), padding='VALID',
                                           kernel_initializer=tf.contrib.keras.initializers.he_normal(),
-                                          activation=tf.nn.relu, reuse=reuse, name='conv')  # TODO: check other params
+                                          activation=tf.nn.relu, reuse=reuse, name='conv')
             pooling_layer = tf.layers.max_pooling2d(conv_layer, (3, 3), strides=(3, 3),
-                                                    padding='VALID', name='max_pooling')  # TODO: check other params
+                                                    padding='VALID', name='max_pooling')
             matching_vector = tf.layers.dense(tf.contrib.layers.flatten(pooling_layer), 50,
                                               kernel_initializer=tf.contrib.layers.xavier_initializer(),
                                               activation=tf.tanh, reuse=reuse,
@@ -73,13 +73,14 @@ class SCNRMAModel(SCNMAModel):
         # b * u * 50
         memory_vectors = tf.stack(matching_vectors, axis=1, name='matching_stack')
         utter_respresent = tf.stack(utter_respresent, axis=1, name="utter_respresent")
+        v_memory_vectors = self.get_memory(memory_vectors, utter_respresent)
         dec_in_state = self.reduce_states(utterance_last_hidden)
         with tf.variable_scope('decoder'):
             cell = tf.nn.rnn_cell.LSTMCell(self.hidden_size_2, state_is_tuple=True, initializer=self.rand_unif_init)
-            dec_out_state = self.add_decoder(dec_in_state, memory_vectors, response_last_hidden, cell)
+            dec_out_state = self.add_decoder(dec_in_state, v_memory_vectors, response_last_hidden, cell)
         attention_last_hidden = dec_out_state.h
         _, final_last_hidden = tf.nn.dynamic_rnn(final_GRU, memory_vectors, sequence_length=self.input_utter_num,
-                                                 dtype=tf.float32, scope='final_GRU')  # TODO: check time_major
+                                                 dtype=tf.float32, scope='final_GRU')
         if self.config.mode == "SCNRMA":
             last_hidden = tf.concat([attention_last_hidden, final_last_hidden], axis=-1, name='last_hidden_stack')
         elif self.config.mode == "SCN":
@@ -135,58 +136,21 @@ class SCNRMAModel(SCNMAModel):
             new_h = tf.nn.relu(tf.matmul(last_hidden, w_reduce_h) + bias_reduce_h)  # Get new state from old state
             return tf.contrib.rnn.LSTMStateTuple(new_c, new_h)  # Return new cell and state
 
-    def self_attention(self, match_state, match_size, hidden_size, context_vecotor, utter_num, max_utter_num, scope=None, reuse=None):
-        """
-        hidden_state: [batch_size, sequence_length, hidden_size*2]
-        context vector:
-        :return [batch_size*num_sentences, hidden_size*2]
-        """
-        with tf.variable_scope(scope or "self_attention", reuse=reuse):
-            self.W_w_m = tf.get_variable("W_w_m", shape=[match_size, match_size])
-            self.W_b_m = tf.get_variable("W_b_m", shape=[match_size])
-            self.W_w_h = tf.get_variable("W_w_h", shape=[hidden_size, match_size])
-            self.W_b_h = tf.get_variable("W_b_h", shape=[match_size])
-            # self.context_vecotor_word = tf.get_variable("informative_word_attention", shape=[hidden_size])  # TODO o.k to use batch_size in first demension?
-            # 0) one layer of feed forward network
-            # shape: [batch_size*sequence_length, hidden_size]
-            match_state_ = tf.reshape(match_state, shape=[-1, match_size])
-            # hidden_state_: [batch_size*sequence_length, hidden_size]
-            # W_w_attention_sentence: [hidden_size, hidden_size]
-            match_representation = tf.nn.tanh(tf.matmul(match_state_, self.W_w_m)
-                                               + self.W_b_m)
-            context_vecotor = tf.nn.tanh(tf.matmul(context_vecotor, self.W_w_h) + self.W_b_h)
-            # shape: [batch_size, sequence_length, hidden_size]
-            match_representation = tf.reshape(match_representation, shape=[-1, max_utter_num, match_size])
-            context_vecotor = tf.expand_dims(context_vecotor, axis=1)
-            # 1) get logits for each word in the sentence.
-            # hidden_representation: [batch_size, sequence_length, hidden_size]
-            # context_vecotor_word: [hidden_size]
-            hidden_state_context_similiarity = tf.multiply(match_representation, context_vecotor)
-            # 对应相乘再求和，得到权重
-            # shape: [batch_size, sequence_length]
-            attention_logits = tf.reduce_sum(hidden_state_context_similiarity, axis=2)
-            # subtract max for numerical stability (softmax is shift invariant).
-            # tf.reduce_max:Computes the maximum of elements across dimensions of a tensor.
-            # shape: [batch_size, 1]
-            attention_logits_max = tf.reduce_max(attention_logits, axis=1, keep_dims=True)
-            # 2) get possibility distribution for each word in the sentence.
-            # shape: [batch_size, sequence_length]
-            # 归一化
-            p_attention = tf.nn.softmax(attention_logits - attention_logits_max)
-            # 3) get weighted hidden state by attention vector
-            # shape: [batch_size, sequence_length, 1]
-            p_attention_expanded = tf.expand_dims(p_attention, axis=2)
-            # below sentence_representation
-            # shape:[batch_size, sequence_length, hidden_size]<----
-            # p_attention_expanded: [batch_size, sequence_length, 1]
-            # hidden_state_: [batch_size, sequence_length, hidden_size]
-            # shape: [batch_size, sequence_length, hidden_size]
-            sentence_representation = tf.multiply(p_attention_expanded, match_representation)
-            # shape: [batch_size,sequence_length, hidden_size]
-            sentence_representation = tf_utils.Mask(sentence_representation, utter_num, max_utter_num)
-            sentence_representation = tf.reduce_sum(sentence_representation, axis=1)
-            # shape: [batch_size, hidden_size]
-            return sentence_representation
+    def get_memory(self, memory_vectors, utter_respresent):
+        with tf.variable_scope('get_memory_vectors'):
+            M_s = tf.get_variable('mem_gru_s', [1, 1, self.hidden_size_2, self.hidden_size_2], dtype=tf.float32,
+                                  initializer=self.trunc_norm_init)
+            W_s = tf.get_variable('hidden_gru_s', [1, 1, self.hidden_size_1, self.hidden_size_2], dtype=tf.float32,
+                                  initializer=self.trunc_norm_init)
+            b_s = tf.get_variable('bias_gate_s', self.hidden_size_2, dtype=tf.float32,
+                                  initializer=self.trunc_norm_init)
+            # (batch_size, s_length, 1, hidden_size)
+            memory_features = tf.expand_dims(memory_vectors, axis=2)
+            memory_features = tf.nn.conv2d(memory_features, M_s, [1, 1, 1, 1], "SAME")
+            utter_features = tf.expand_dims(utter_respresent, axis=2)
+            utter_features = tf.nn.conv2d(utter_features, W_s, [1, 1, 1, 1], "SAME")
+            v_memory_vectors =tf.nn.tanh(tf.reduce_sum((memory_features + utter_features), 2) + b_s)
+        return v_memory_vectors
 
     def add_decoder(self, initial_state, encoder_states, response_last_hidden, cell):
         with tf.variable_scope("attention_decoder") as scope:

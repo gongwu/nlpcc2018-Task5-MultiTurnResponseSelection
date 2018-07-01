@@ -1,10 +1,10 @@
 {
-  "exp_name": "MBMN_final_all_SCN_st",
-  "model": "MBMN",
-  "mode": "SCN",
-  "forword_only": true,
+  "exp_name": "MEMORY_final_features",
+  "model": "SCNRMA",
+  "mode": "MEMORY",
+  "forword_only": false,
   "num_epochs": 100,
-  "feature_p": false,
+  "feature_p": true,
   "feature_u": false,
   "learning_rate": 1e-3,
   "attention_num": 5,
@@ -16,6 +16,6 @@
   "drop_keep_rate": 0.9,
   "max_to_keep": 1,
   "threshold": 5,
-  "init": false,
+  "init": true,
   "display_step": 100
 }
